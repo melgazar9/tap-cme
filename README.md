@@ -1,129 +1,49 @@
 # tap-cme
 
-`tap-cme` is a Singer tap for CME.
+Singer tap for CME Group's Reference Data API v3, built with the [Meltano Singer SDK](https://sdk.meltano.com).
+It loads CME's own Globex trading hours and holiday schedules, a year back and two years ahead, so a trading desk
+and its replays read the exchange's published sessions instead of a hand-maintained calendar.
 
-Built with the [Meltano Tap SDK](https://sdk.meltano.com) for Singer Taps.
+## Streams
 
-<!--
+| Stream | Key | One record per |
+|---|---|---|
+| `trading_schedules` | `fetch_id`, `trading_schedule_id` | schedule per fetch: every trading date's market events (`preopen`, `open`, `paused`, `pcp`, `closed`) in CME's order, times in UTC |
+| `trading_schedules_fetches` | `fetch_id` | fetch, written after its last page: the only proof a fetch is whole |
 
-Developer TODO: Update the below as needed to correctly describe the install procedure. For instance, if you do not have a PyPI repo, or if you want users to directly install from your git repo, you can modify this step as appropriate.
-
-## Installation
-
-Install from PyPI:
-
-```bash
-uv tool install tap-cme
-```
-
-Install from GitHub:
-
-```bash
-uv tool install git+https://github.com/ORG_NAME/tap-cme.git@main
-```
-
--->
+- Read a fetch only through its `trading_schedules_fetches` record. A run that dies mid-fetch leaves schedule rows
+  with no fetch record, and those rows must never be read.
+- A fetch started inside CME's weekly maintenance (Friday 22:00 to Saturday 19:00 CT) is flagged `in_maintenance`.
+- A requested group whose answer holds no schedule is listed in `groups_without_schedules`. That means unknown, never
+  closed.
+- `trading_schedule_id` is not stable across fetches: CME renumbered the treasury schedule within 23 minutes on
+  2026-11-19. Join fetches on Globex group codes, never on that id.
+- CME's Juneteenth session is filed under the next Monday's trading date. Read sessions by their events' times, never by
+  the trading date alone.
+- The tap refuses anything it cannot read: a key CME has not sent before, a key it stopped sending, or a date in
+  another format. It names the schedule, the date and the field.
 
 ## Configuration
 
-### Accepted Config Options
+| Setting | Required | Default |
+|---|---|---|
+| `client_id` | yes | the OAuth API ID (`API_...`), from CME Customer Center, My Profile, APIs |
+| `client_secret` | yes | the API ID's generated password (expires yearly) |
+| `globex_group_codes` | yes | Globex groups each fetch asks for, e.g. `["ZN"]` (its schedule also serves ZB and ZF) |
+| `api_url` | no | `https://refdata.api.cmegroup.com/refdata/v3` |
+| `auth_url` | no | `https://auth.cmegroup.com/as/token.oauth2` |
+| `capture_dir` | no | a fetch saved to disk (`manifest.json` + `page-NNNNN.json`), loaded at its own fetch times |
 
-<!--
-Developer TODO: Provide a list of config options accepted by the tap.
+Futures and options schedules need no CME entitlement beyond the API ID. Pages hold one schedule each, because a
+response over 10 MB fails with HTTP 502.
 
-This section can be created by copy-pasting the CLI output from:
-
-```
-tap-cme --about --format=markdown
-```
--->
-
-A full list of supported settings and capabilities for this
-tap is available by running:
-
-```bash
-tap-cme --about
-```
-
-### Configure using environment variables
-
-This Singer tap will automatically import any environment variables within the working directory's
-`.env` if the `--config=ENV` is provided, such that config values will be considered if a matching
-environment variable is set either in the terminal context or in the `.env` file.
-
-### Source Authentication and Authorization
-
-<!--
-Developer TODO: If your tap requires special access on the source system, or any special authentication requirements, provide those here.
--->
-
-## Usage
-
-You can easily run `tap-cme` by itself or in a pipeline using [Meltano](https://meltano.com/).
-
-### Executing the Tap Directly
-
-```bash
-tap-cme --version
-tap-cme --help
-tap-cme --config CONFIG --discover > ./catalog.json
-```
-
-## Developer Resources
-
-Follow these instructions to contribute to this project.
-
-### Initialize your Development Environment
-
-Prerequisites:
-
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/)
+## Development
 
 ```bash
 uv sync
+uv run pytest                                  # live SDK tests run only when CME_API_ID is set
+uv run tap-cme --config config.json --config ENV   # TAP_CME_CLIENT_ID / TAP_CME_CLIENT_SECRET from the environment
 ```
 
-### Create and Run Tests
-
-Create tests within the `tests` subfolder and
-then run:
-
-```bash
-uv run pytest
-```
-
-You can also test the `tap-cme` CLI interface directly using `uv run`:
-
-```bash
-uv run tap-cme --help
-```
-
-### Testing with [Meltano](https://www.meltano.com)
-
-_**Note:** This tap will work in any Singer environment and does not require Meltano.
-Examples here are for convenience and to streamline end-to-end orchestration scenarios._
-
-<!--
-Developer TODO:
-Your project comes with a custom `meltano.yml` project file already created. Open the `meltano.yml` and follow any "TODO" items listed in
-the file.
--->
-
-Use Meltano to run an EL pipeline:
-
-```bash
-# Install meltano
-uv tool install meltano
-
-# Test invocation
-meltano invoke tap-cme --version
-
-# Run a test EL pipeline
-meltano run tap-cme target-jsonl
-```
-
-### SDK Dev Guide
-
-See the [dev guide](https://sdk.meltano.com/en/latest/dev_guide.html) for more instructions on how to use the SDK to
-develop your own taps and targets.
+Lint and types, as CI runs them: `uvx ruff@0.16.10 check tap_cme tests`, `uv run --group typing mypy tap_cme tests`,
+`uv run --group typing ty check tap_cme tests`.

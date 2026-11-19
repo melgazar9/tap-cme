@@ -1,7 +1,7 @@
-send_anonymous_usage_stats: true
+send_anonymous_usage_stats: false
 project_id: "tap-cme"
 default_environment: test
-requires_meltano: ">=4.0"
+requires_meltano: ">=3.7"
 environments:
 - name: test
 plugins:
@@ -16,37 +16,37 @@ plugins:
     - about
     - stream-maps
     - structured-logging
-
-    # TODO: Declare settings and their types here:
     settings:
     - name: client_id
-      label: Client ID
-      description: OAuth client ID for the CME OAuth app
+      label: API ID
+      description: The OAuth API ID from CME Customer Center (My Profile, APIs)
       sensitive: true
-
     - name: client_secret
-      label: Password
-      description: OAuth client secret for the CME OAuth app
+      label: API password
+      description: The API ID's generated password
       sensitive: true
-
-    - name: refresh_token
-      label: Refresh Token
-      description: OAuth refresh token for the CME OAuth app
-      sensitive: true
-
-    - name: start_date
-      kind: date_iso8601
-      label: Start Date
-      description: Initial date to start extracting data from
-
-    # TODO: Declare required settings here:
+    - name: globex_group_codes
+      kind: array
+      label: Globex groups
+      description: Globex group codes whose schedules each fetch asks for
+    - name: api_url
+      label: API URL
+      description: Reference Data API v3 root
+    - name: auth_url
+      label: Token URL
+      description: CME's OAuth token endpoint
+    - name: capture_dir
+      label: Capture folder
+      description: Load a fetch saved to disk (manifest.json and its pages) at its own fetch times instead of CME
     settings_group_validation:
-    - [client_id, client_secret]
-
-    # TODO: Declare default configuration values here:
+    - [client_id, client_secret, globex_group_codes]
     config:
-      start_date: 6 months ago
-
+      client_id: ${CME_API_ID}
+      client_secret: ${CME_API_PASSWORD}
+      globex_group_codes: [ZN]
+    select:
+    - trading_schedules.*
+    - trading_schedules_fetches.*
   loaders:
   - name: target-jsonl
     variant: andyh1203

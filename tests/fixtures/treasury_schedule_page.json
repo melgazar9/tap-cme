@@ -1,0 +1,190 @@
+{
+ "_embedded": {
+  "tradingSchedules": [
+   {
+    "tradingScheduleId": 260961,
+    "applicableGlobexGroupCodes": [
+     "7Y",
+     "UB",
+     "Z1",
+     "Z3",
+     "Z4",
+     "Z5",
+     "0N",
+     "N2",
+     "4Y",
+     "MR",
+     "UZ",
+     "J1",
+     "J2",
+     "ZB",
+     "J3",
+     "J4",
+     "J5",
+     "J6",
+     "ZF",
+     "IV",
+     "J9",
+     "2$",
+     "ZN",
+     "JA",
+     "ZQ",
+     "JB",
+     "ZT",
+     "JE",
+     "ZU",
+     "ZV",
+     "S2",
+     "ZY",
+     "S3",
+     "5Y",
+     "S7",
+     "BH",
+     "FO",
+     "JT",
+     "BM",
+     "SA",
+     "T$",
+     "SF",
+     "SH",
+     "SJ",
+     "SM",
+     "SN",
+     "T1",
+     "SR",
+     "SS",
+     "6Y",
+     "CF",
+     "SX",
+     "SY",
+     "2Y",
+     "SZ",
+     "U$",
+     "TE",
+     "TI"
+    ],
+    "quadrants": [
+     "IR & TREASURY"
+    ],
+    "scheduleNames": [
+     "INTEREST RATES/TREASURIES SC"
+    ],
+    "marketEventsByDate": [
+     {
+      "tradingDate": "04-03-26",
+      "marketEvents": [
+       {
+        "marketEventType": "preopen",
+        "noCancelPeriod": "description:30",
+        "marketEventTime": "04/02/2026 21:45:00.000Z"
+       },
+       {
+        "marketEventType": "open",
+        "noCancelPeriod": null,
+        "marketEventTime": "04/02/2026 22:00:00.000Z"
+       },
+       {
+        "marketEventType": "closed",
+        "noCancelPeriod": null,
+        "marketEventTime": "04/03/2026 15:15:00.000Z"
+       }
+      ]
+     },
+     {
+      "tradingDate": "06-22-26",
+      "marketEvents": [
+       {
+        "marketEventType": "preopen",
+        "noCancelPeriod": "description:30",
+        "marketEventTime": "06/18/2026 21:45:00.000Z"
+       },
+       {
+        "marketEventType": "open",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/18/2026 22:00:00.000Z"
+       },
+       {
+        "marketEventType": "closed",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/19/2026 17:00:00.000Z"
+       },
+       {
+        "marketEventType": "open",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/20/2026 10:00:00.000Z"
+       },
+       {
+        "marketEventType": "closed",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/20/2026 22:00:00.000Z"
+       },
+       {
+        "marketEventType": "preopen",
+        "noCancelPeriod": "description:30",
+        "marketEventTime": "06/21/2026 21:00:00.000Z"
+       },
+       {
+        "marketEventType": "open",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/21/2026 22:00:00.000Z"
+       },
+       {
+        "marketEventType": "closed",
+        "noCancelPeriod": null,
+        "marketEventTime": "06/22/2026 21:00:00.000Z"
+       }
+      ]
+     },
+     {
+      "tradingDate": "11-18-26",
+      "marketEvents": [
+       {
+        "marketEventType": "preopen",
+        "noCancelPeriod": "description:30",
+        "marketEventTime": "11/17/2026 22:45:00.000Z"
+       },
+       {
+        "marketEventType": "open",
+        "noCancelPeriod": null,
+        "marketEventTime": "11/17/2026 23:00:00.000Z"
+       },
+       {
+        "marketEventType": "closed",
+        "noCancelPeriod": null,
+        "marketEventTime": "11/18/2026 22:00:00.000Z"
+       }
+      ]
+     }
+    ],
+    "_links": {
+     "self": {
+      "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules/260961"
+     }
+    }
+   }
+  ]
+ },
+ "_links": {
+  "first": {
+   "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules?page=0&size=1"
+  },
+  "prev": {
+   "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules?page=9&size=1"
+  },
+  "self": {
+   "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules?page=10&size=1"
+  },
+  "next": {
+   "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules?page=11&size=1"
+  },
+  "last": {
+   "href": "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules?page=190&size=1"
+  }
+ },
+ "page": {
+  "size": 1,
+  "totalElements": 191,
+  "totalPages": 191,
+  "number": 10
+ }
+}
