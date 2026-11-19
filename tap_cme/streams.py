@@ -1,4 +1,4 @@
-"""CME's trading schedules and each fetch's completion record."""
+"""CME's trading schedules, one record per schedule per fetch, each carrying its fetch's summary."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from singer_sdk import Stream
 from singer_sdk import typing as th
 from singer_sdk.pagination import PageNumberPaginator
 
@@ -40,7 +39,11 @@ class SchedulePagePaginator(PageNumberPaginator):
 
 
 class TradingSchedulesStream(CMEStream):
-    """One record per schedule per fetch: every trading date's market events, as CME publishes them."""
+    """One record per schedule per fetch: every trading date's market events, as CME publishes them.
+
+    A fetch's pages are held until its last one lands, then written with the fetch's summary, so a fetch that
+    fails part-way writes nothing and a reader proves a fetch whole from its own rows.
+    """
 
     name = "trading_schedules"
     path = "/tradingSchedules"
@@ -53,7 +56,7 @@ class TradingSchedulesStream(CMEStream):
     schema = th.PropertiesList(
         th.Property("fetch_id", th.StringType, required=True),
         th.Property("fetched_at", th.DateTimeType, required=True, description="When this schedule's page landed"),
-        th.Property("trading_schedule_id", th.IntegerType, required=True),
+        th.Property("trading_schedule_id", th.IntegerType, required=True, description="Not stable across fetches"),
         th.Property("applicable_globex_group_codes", th.ArrayType(th.StringType)),
         th.Property("quadrants", th.ArrayType(th.StringType)),
         th.Property("schedule_names", th.ArrayType(th.StringType)),
@@ -75,6 +78,20 @@ class TradingSchedulesStream(CMEStream):
                 )
             ),
         ),
+        th.Property("fetch_source", th.StringType, required=True, description="api, or capture for a fetch saved to disk"),
+        th.Property("fetch_started_at", th.DateTimeType, required=True),
+        th.Property("fetch_completed_at", th.DateTimeType, required=True),
+        th.Property(
+            "requested_groups",
+            th.ArrayType(th.StringType),
+            description="Globex groups the fetch asked for; null for an unfiltered fetch of every schedule",
+        ),
+        th.Property("groups_without_schedules", th.ArrayType(th.StringType), description="Asked for, none answered"),
+        th.Property("fetch_schedules", th.IntegerType, required=True, description="Distinct schedules the fetch landed"),
+        th.Property("fetch_pages", th.IntegerType, required=True),
+        th.Property(
+            "fetch_in_maintenance", th.BooleanType, required=True, description="Started inside CME's weekly maintenance"
+        ),
     ).to_dict()
 
     def __init__(self, tap: Tap, *, fetch_run: FetchRun, capture: CapturePages | None) -> None:
@@ -85,12 +102,22 @@ class TradingSchedulesStream(CMEStream):
 
     @override
     def get_records(self, context: Context | None) -> Iterable[dict[str, Any]]:
-        """Every requested group's pages from CME, or the capture's pages, then the fetch closed."""
-        if self.capture is not None:
-            for body, fetched_at in self.capture.pages():
-                yield from self._page_records(None, body, fetched_at)
-            self.fetch_run.finish(self.capture.completed_at)
-            return
+        """Every page of the fetch, held until the last lands, then each schedule once with the fetch's summary."""
+        landed = list(self._captured() if self.capture is not None else self._requested())
+        summary = self.fetch_run.summary()
+        for record in landed:
+            if self.fetch_run.first_sight(record["trading_schedule_id"]):
+                yield {**record, **summary}
+
+    def _captured(self) -> Iterator[dict[str, Any]]:
+        if self.capture is None:
+            msg = "no capture configured"
+            raise ValueError(msg)
+        for body, fetched_at in self.capture.pages():
+            yield from self._page_records(None, body, fetched_at)
+        self.fetch_run.finish(self.capture.completed_at)
+
+    def _requested(self) -> Iterator[dict[str, Any]]:
         for group in self.fetch_run.requested_groups or []:
             yield from self.request_records({"globex_group": group})
         self.fetch_run.finish(datetime.now(UTC))
@@ -111,11 +138,6 @@ class TradingSchedulesStream(CMEStream):
         group = parse_qs(urlparse(str(response.request.url)).query)[self.GROUP_PARAM][0]
         yield from self._page_records(group, response.json(), datetime.now(UTC))
 
-    @override
-    def post_process(self, row: dict, context: Context | None = None) -> dict | None:
-        """Drop a schedule this fetch already wrote (two requested groups can share one)."""
-        return row if self.fetch_run.first_sight(row["trading_schedule_id"]) else None
-
     def _page_records(self, group: str | None, body: dict[str, Any], fetched_at: datetime) -> Iterator[dict[str, Any]]:
         total = int(body["page"]["totalElements"])
         self.fetch_run.begin_page(group, total)
@@ -127,38 +149,3 @@ class TradingSchedulesStream(CMEStream):
             schedule = TradingSchedule.normalize(raw)
             self.fetch_run.receive(group, schedule["trading_schedule_id"])
             yield {"fetch_id": self.fetch_run.fetch_id, "fetched_at": fetched_at.isoformat(), **schedule}
-
-
-class FetchesStream(Stream):
-    """One record per fetch, written after its last page: the only proof a fetch is whole."""
-
-    # sorts after trading_schedules: the SDK syncs streams by name, and a fetch's completion follows its pages
-    name = "trading_schedules_fetches"
-    primary_keys = ("fetch_id",)
-    replication_key = None
-
-    schema = th.PropertiesList(
-        th.Property("fetch_id", th.StringType, required=True),
-        th.Property("source", th.StringType, required=True, description="api, or capture for a fetch saved to disk"),
-        th.Property("api_url", th.StringType),
-        th.Property("started_at", th.DateTimeType, required=True),
-        th.Property("completed_at", th.DateTimeType, required=True),
-        th.Property(
-            "requested_groups",
-            th.ArrayType(th.StringType),
-            description="Globex groups asked for; null for an unfiltered fetch of every schedule",
-        ),
-        th.Property("groups_without_schedules", th.ArrayType(th.StringType), description="Asked for, none answered"),
-        th.Property("schedules", th.IntegerType, required=True, description="Distinct schedules the fetch landed"),
-        th.Property("pages", th.IntegerType, required=True),
-        th.Property("in_maintenance", th.BooleanType, required=True, description="Started inside CME's weekly maintenance"),
-    ).to_dict()
-
-    def __init__(self, tap: Tap, *, fetch_run: FetchRun) -> None:
-        """Stamp `fetch_run` once its pages landed."""
-        super().__init__(tap)
-        self.fetch_run = fetch_run
-
-    @override
-    def get_records(self, context: Context | None) -> Iterable[dict[str, Any]]:
-        yield self.fetch_run.record()

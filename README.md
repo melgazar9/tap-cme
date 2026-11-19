@@ -4,24 +4,28 @@ Singer tap for CME Group's Reference Data API v3, built with the [Meltano Singer
 It loads CME's own Globex trading hours and holiday schedules, a year back and two years ahead, so a trading desk
 and its replays read the exchange's published sessions instead of a hand-maintained calendar.
 
-## Streams
+## Stream
 
-| Stream | Key | One record per |
-|---|---|---|
-| `trading_schedules` | `fetch_id`, `trading_schedule_id` | schedule per fetch: every trading date's market events (`preopen`, `open`, `paused`, `pcp`, `closed`) in CME's order, times in UTC |
-| `trading_schedules_fetches` | `fetch_id` | fetch, written after its last page: the only proof a fetch is whole |
+`trading_schedules`, keyed by `fetch_id` and `trading_schedule_id`, holds one record per schedule per fetch. Each record
+holds every trading date's market events (`preopen`, `open`, `paused`, `pcp`, `closed`) in CME's order, with times in
+UTC.
 
-- Read a fetch only through its `trading_schedules_fetches` record. A run that dies mid-fetch leaves schedule rows
-  with no fetch record, and those rows must never be read.
-- A fetch started inside CME's weekly maintenance (Friday 22:00 to Saturday 19:00 CT) is flagged `in_maintenance`.
-- A requested group whose answer holds no schedule is listed in `groups_without_schedules`. That means unknown, never
-  closed.
-- `trading_schedule_id` is not stable across fetches: CME renumbered the treasury schedule within 23 minutes on
-  2026-11-19. Join fetches on Globex group codes, never on that id.
-- CME's Juneteenth session is filed under the next Monday's trading date. Read sessions by their events' times, never by
-  the trading date alone.
-- The tap refuses anything it cannot read: a key CME has not sent before, a key it stopped sending, or a date in
-  another format. It names the schedule, the date and the field.
+- **All or nothing.** A fetch's pages are held until its last one lands, then written together, each record carrying
+  the fetch's summary. A fetch that fails part-way writes nothing.
+- **Proving a fetch whole.** A reader proves it from the fetch's own rows: its distinct `trading_schedule_id`s landed
+  must equal `fetch_schedules`.
+- **Maintenance.** A fetch started inside CME's weekly maintenance (Friday 22:00 to Saturday 19:00 CT) is flagged
+  `fetch_in_maintenance`.
+- **Empty answers.** A requested group whose answer holds no schedule is listed in `groups_without_schedules`. That
+  means unknown, never closed.
+- **Unstable ids.** `trading_schedule_id` is not stable across fetches: CME renumbered the treasury schedule within 23
+  minutes on 2026-11-19. Join fetches on Globex group codes, never on that id.
+- **Trading dates.** CME files the Juneteenth session under the next Monday's trading date. Read sessions by their
+  events' times, never by the trading date alone.
+- **Refusals.** The tap refuses anything it cannot read and names the schedule, the date and the field:
+  - a key CME has not sent before;
+  - a key it stopped sending;
+  - a date in another format.
 
 ## Configuration
 

@@ -46,7 +46,6 @@ plugins:
       globex_group_codes: [ZN]
     select:
     - trading_schedules.*
-    - trading_schedules_fetches.*
   loaders:
   - name: target-jsonl
     variant: andyh1203

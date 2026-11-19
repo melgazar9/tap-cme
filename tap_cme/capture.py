@@ -34,11 +34,6 @@ class CapturePages:
         return manifest
 
     @property
-    def url(self) -> str:
-        """The endpoint the capture fetched."""
-        return str(self.manifest["url"])
-
-    @property
     def started_at(self) -> datetime:
         """When the capture's first request went out."""
         return datetime.fromisoformat(self.manifest["started_at_utc"])

@@ -9,21 +9,21 @@ from tap_cme.schedule import MaintenanceWindow
 
 
 class FetchRun:
-    """Counts one fetch's pages and schedules, and writes its completion record only once every page landed.
+    """Counts one fetch's pages and schedules, and summarizes the fetch once every page landed.
 
-    A reader counts a fetch only through that record, so a run that dies mid-fetch leaves rows nobody reads.
-    `None` as a group stands for an unfiltered request (the whole of CME's schedules).
+    The summary rides on every record the fetch writes, so a reader proves a fetch whole from its own rows: the
+    distinct schedules landed must equal the `fetch_schedules` each row carries. `None` as a group stands for an
+    unfiltered request (the whole of CME's schedules).
     """
 
     FETCH_ID_FORMAT: ClassVar[str] = "%Y%m%dT%H%M%S.%fZ"
 
-    def __init__(self, *, source: str, api_url: str, requested_groups: list[str] | None, started_at: datetime) -> None:
+    def __init__(self, *, source: str, requested_groups: list[str] | None, started_at: datetime) -> None:
         """Open a fetch that started at `started_at`, asking for `requested_groups` (None: every schedule)."""
         if started_at.tzinfo is None:
             msg = f"fetch start {started_at} has no timezone"
             raise ValueError(msg)
         self.source = source
-        self.api_url = api_url
         self.requested_groups = requested_groups
         self.started_at = started_at.astimezone(UTC)
         self.fetch_id = self.started_at.strftime(self.FETCH_ID_FORMAT)
@@ -47,7 +47,7 @@ class FetchRun:
         self._received[group].add(schedule_id)
 
     def first_sight(self, schedule_id: int) -> bool:
-        """Whether this fetch has not yet emitted the schedule (two groups can share one)."""
+        """Whether this fetch has not yet written the schedule (two requested groups can share one)."""
         if schedule_id in self._emitted:
             return False
         self._emitted.add(schedule_id)
@@ -67,29 +67,22 @@ class FetchRun:
             raise RuntimeError(msg)
         self._completed_at = completed_at.astimezone(UTC)
 
-    @property
-    def finished(self) -> bool:
-        """Whether every page of the fetch landed."""
-        return self._completed_at is not None
-
-    def record(self) -> dict[str, Any]:
-        """The fetch's completion record.
+    def summary(self) -> dict[str, Any]:
+        """The fetch's own columns, written on each of its records.
 
         Raises:
             RuntimeError: when the fetch never finished, so its pages cannot be counted.
         """
         if self._completed_at is None:
-            msg = f"fetch {self.fetch_id} never finished: the trading_schedules stream did not run to its end"
+            msg = f"fetch {self.fetch_id} never finished, so none of its pages may be written"
             raise RuntimeError(msg)
         return {
-            "fetch_id": self.fetch_id,
-            "source": self.source,
-            "api_url": self.api_url,
-            "started_at": self.started_at.isoformat(),
-            "completed_at": self._completed_at.isoformat(),
+            "fetch_source": self.source,
+            "fetch_started_at": self.started_at.isoformat(),
+            "fetch_completed_at": self._completed_at.isoformat(),
             "requested_groups": self.requested_groups,
             "groups_without_schedules": sorted(group for group, total in self._totals.items() if group and total == 0),
-            "schedules": len(set().union(*self._received.values())) if self._received else 0,
-            "pages": self._pages,
-            "in_maintenance": MaintenanceWindow.contains(self.started_at),
+            "fetch_schedules": len(set().union(*self._received.values())) if self._received else 0,
+            "fetch_pages": self._pages,
+            "fetch_in_maintenance": MaintenanceWindow.contains(self.started_at),
         }

@@ -13,7 +13,7 @@ from singer_sdk import typing as th
 
 from tap_cme.capture import CapturePages
 from tap_cme.fetch_run import FetchRun
-from tap_cme.streams import FetchesStream, TradingSchedulesStream
+from tap_cme.streams import TradingSchedulesStream
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -85,21 +85,16 @@ class TapCME(Tap):
     def fetch_run(self) -> FetchRun:
         """This run's one fetch, shared by its pages and its completion record."""
         if self.capture is not None:
-            return FetchRun(
-                source="capture", api_url=self.capture.url, requested_groups=None, started_at=self.capture.started_at
-            )
+            return FetchRun(source="capture", requested_groups=None, started_at=self.capture.started_at)
         groups = list(self.config["globex_group_codes"])
         if not groups:
             msg = "globex_group_codes is empty: a fetch must ask for at least one Globex group"
             raise ValueError(msg)
-        return FetchRun(source="api", api_url=self.config["api_url"], requested_groups=groups, started_at=datetime.now(UTC))
+        return FetchRun(source="api", requested_groups=groups, started_at=datetime.now(UTC))
 
     @override
     def discover_streams(self) -> list[Stream]:
-        return [
-            TradingSchedulesStream(self, fetch_run=self.fetch_run, capture=self.capture),
-            FetchesStream(self, fetch_run=self.fetch_run),
-        ]
+        return [TradingSchedulesStream(self, fetch_run=self.fetch_run, capture=self.capture)]
 
 
 if __name__ == "__main__":

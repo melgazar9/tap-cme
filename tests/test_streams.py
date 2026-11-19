@@ -1,4 +1,4 @@
-"""The tap against a mocked CME: token, pages, the fetch's completion record and its refusals."""
+"""The tap against a mocked CME: token, pages, the fetch's summary on its records, and its refusals."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ if TYPE_CHECKING:
     import requests_mock as rm
 
 FIXTURE = Path(__file__).parent / "fixtures" / "treasury_schedule_page.json"
-API = "https://refdata.api.cmegroup.com/refdata/v3"
-SCHEDULES = f"{API}/tradingSchedules"
+SCHEDULES = "https://refdata.api.cmegroup.com/refdata/v3/tradingSchedules"
 TOKEN = "https://auth.cmegroup.com/as/token.oauth2"
 CONFIG = {"client_id": "API_TEST", "client_secret": "secret", "globex_group_codes": ["ZN"]}
+STARTED = datetime(2026, 11, 19, 20, 0, tzinfo=UTC)
 
 
 def schedule(schedule_id: int) -> dict[str, Any]:
@@ -58,30 +58,29 @@ def cme(requests_mock: rm.Mocker) -> rm.Mocker:
 
 
 def written(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
-    """The RECORD messages the tap wrote, in order."""
+    """The records the tap wrote, in order."""
     messages = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
-    return [m for m in messages if m["type"] == "RECORD"]
+    return [m["record"] for m in messages if m["type"] == "RECORD"]
 
 
-def run(capsys: pytest.CaptureFixture[str], config: dict[str, Any], catalog: dict | None = None) -> list[dict[str, Any]]:
-    """Sync the tap and return its RECORD messages in the order written."""
-    TapCME(config=config, catalog=catalog).sync_all()
+def run(capsys: pytest.CaptureFixture[str], config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Sync the tap and return its records in the order written."""
+    TapCME(config=config).sync_all()
     return written(capsys)
 
 
 def test_one_group_one_page(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
     answer(cme, "ZN", [page([schedule(260961)], 0, 1)])
-    records = run(capsys, CONFIG)
-    assert [r["stream"] for r in records] == ["trading_schedules", "trading_schedules_fetches"]
-    schedule_record, fetch = records[0]["record"], records[1]["record"]
-    assert schedule_record["trading_schedule_id"] == 260961
-    assert schedule_record["fetch_id"] == fetch["fetch_id"]
-    assert fetch["schedules"] == 1
-    assert fetch["pages"] == 1
-    assert fetch["requested_groups"] == ["ZN"]
-    assert fetch["groups_without_schedules"] == []
-    assert fetch["source"] == "api"
-    assert fetch["in_maintenance"] is False
+    [record] = run(capsys, CONFIG)
+    assert record["trading_schedule_id"] == 260961
+    assert record["fetch_schedules"] == 1
+    assert record["fetch_pages"] == 1
+    assert record["requested_groups"] == ["ZN"]
+    assert record["groups_without_schedules"] == []
+    assert record["fetch_source"] == "api"
+    assert record["fetch_in_maintenance"] is False
+    assert record["fetch_id"] == datetime.fromisoformat(record["fetch_started_at"]).strftime(FetchRun.FETCH_ID_FORMAT)
+    assert record["fetch_started_at"] <= record["fetched_at"] <= record["fetch_completed_at"]
     token_request, schedule_request = cme.request_history[0], cme.request_history[1]
     assert parse_qs(token_request.text) == {
         "grant_type": ["client_credentials"],
@@ -94,32 +93,40 @@ def test_one_group_one_page(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) 
 def test_pages_until_total_pages(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
     answer(cme, "ZN", [page([schedule(n)], n - 1, 3) for n in (1, 2, 3)])
     records = run(capsys, CONFIG)
-    assert [r["record"]["trading_schedule_id"] for r in records if r["stream"] == "trading_schedules"] == [1, 2, 3]
-    assert records[-1]["record"]["pages"] == 3
+    assert [r["trading_schedule_id"] for r in records] == [1, 2, 3]
+    assert {r["fetch_pages"] for r in records} == {3}
+    assert {r["fetch_schedules"] for r in records} == {3}
 
 
-def test_a_changing_total_stops_the_fetch(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_changing_total_writes_nothing(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
     answer(cme, "ZN", [page([schedule(1)], 0, 2), page([schedule(2)], 1, 3)])
     with pytest.raises(RuntimeError, match="moved from 2 to 3"):
         TapCME(config=CONFIG).sync_all()
-    assert "trading_schedules_fetches" not in [r["stream"] for r in written(capsys)]
+    assert written(capsys) == []
+
+
+def test_a_failing_later_group_writes_nothing(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
+    answer(cme, "ZN", [page([schedule(260961)], 0, 1)])
+    answer(cme, "ZB", [page([], 0, 2)])
+    with pytest.raises(RuntimeError, match="holds none"):
+        TapCME(config={**CONFIG, "globex_group_codes": ["ZN", "ZB"]}).sync_all()
+    assert written(capsys) == []
 
 
 def test_a_schedule_two_groups_share_is_one_record(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
     answer(cme, "ZN", [page([schedule(260961)], 0, 1)])
     answer(cme, "ZB", [page([schedule(260961)], 0, 1)])
-    records = run(capsys, {**CONFIG, "globex_group_codes": ["ZN", "ZB"]})
-    assert [r["stream"] for r in records] == ["trading_schedules", "trading_schedules_fetches"]
-    assert records[-1]["record"]["schedules"] == 1
-    assert records[-1]["record"]["pages"] == 2
+    [record] = run(capsys, {**CONFIG, "globex_group_codes": ["ZN", "ZB"]})
+    assert record["fetch_schedules"] == 1
+    assert record["fetch_pages"] == 2
 
 
 def test_an_empty_group_is_listed(cme: rm.Mocker, capsys: pytest.CaptureFixture[str]) -> None:
     answer(cme, "ZN", [page([schedule(260961)], 0, 1)])
     answer(cme, "XX", [page([], 0, 0)])
-    records = run(capsys, {**CONFIG, "globex_group_codes": ["ZN", "XX"]})
-    assert records[-1]["record"]["groups_without_schedules"] == ["XX"]
-    assert records[-1]["record"]["schedules"] == 1
+    [record] = run(capsys, {**CONFIG, "globex_group_codes": ["ZN", "XX"]})
+    assert record["groups_without_schedules"] == ["XX"]
+    assert record["fetch_schedules"] == 1
 
 
 def test_schedules_missing_from_a_counted_page_are_refused(cme: rm.Mocker) -> None:
@@ -128,28 +135,28 @@ def test_schedules_missing_from_a_counted_page_are_refused(cme: rm.Mocker) -> No
         TapCME(config=CONFIG).sync_all()
 
 
-def test_fetches_refuses_without_its_pages(cme: rm.Mocker) -> None:
-    catalog = TapCME(config=CONFIG).catalog_dict
-    for entry in catalog["streams"]:
-        if entry["tap_stream_id"] == "trading_schedules":
-            for metadata in entry["metadata"]:
-                if metadata["breadcrumb"] == []:
-                    metadata["metadata"]["selected"] = False
-    with pytest.raises(RuntimeError, match="trading_schedules"):
-        TapCME(config=CONFIG, catalog=catalog).sync_all()
-    assert not [r for r in cme.request_history if r.url.startswith(SCHEDULES)]
+def test_an_unfinished_fetch_has_no_summary() -> None:
+    fetch = FetchRun(source="api", requested_groups=["ZN"], started_at=STARTED)
+    with pytest.raises(RuntimeError, match="never finished"):
+        fetch.summary()
+
+
+def test_a_group_never_asked_is_refused() -> None:
+    fetch = FetchRun(source="api", requested_groups=["ZN", "ZB"], started_at=STARTED)
+    fetch.begin_page("ZN", 0)
+    with pytest.raises(RuntimeError, match=r"never asked \['ZB'\]"):
+        fetch.finish(STARTED)
 
 
 def test_maintenance_fetch_is_flagged() -> None:
     started = datetime(2026, 11, 21, 18, 0, tzinfo=UTC)
-    fetch = FetchRun(source="api", api_url=API, requested_groups=["ZN"], started_at=started)
+    fetch = FetchRun(source="api", requested_groups=["ZN"], started_at=started)
     fetch.begin_page("ZN", 0)
     fetch.finish(started)
-    assert fetch.record()["in_maintenance"] is True
+    assert fetch.summary()["fetch_in_maintenance"] is True
 
 
 def test_a_429_is_retried(cme: rm.Mocker, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     answer(cme, "ZN", [429, page([schedule(260961)], 0, 1)])
-    records = run(capsys, CONFIG)
-    assert [r["stream"] for r in records] == ["trading_schedules", "trading_schedules_fetches"]
+    assert [r["trading_schedule_id"] for r in run(capsys, CONFIG)] == [260961]
